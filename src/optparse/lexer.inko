@@ -1,10 +1,9 @@
-# Lexical analysis of command-line arguments.
+# Lexical analysis of command-line arguments and options.
 import std.cmp.Equal
 import std.fmt.(Format, Formatter)
 import std.iter.(Iter, Stream)
 
 let HYPHEN = 45
-let EQ = 61
 
 fn basic_latin?(byte: Int) -> Bool {
   byte <= 127
@@ -62,6 +61,10 @@ class Lexer {
   fn static new(input: ref Array[String]) -> Lexer {
     Lexer { @input = input.iter, @state = State.Default }
   }
+
+  fn mut buffer(value: ByteArray) {
+    @state = State.Value(value.into_string)
+  }
 }
 
 impl Iter[Token] for Lexer {
@@ -89,13 +92,14 @@ impl Iter[Token] for Lexer {
             # Example: --foo=bar
             case Some(idx) -> {
               let name = val.slice(start: 2, size: idx - 2).into_string
-              let value = val.slice(idx + 1, val.size).into_string
 
-              @state = State.Value(value)
+              buffer(val.slice(idx + 1, val.size))
               Token.Long(name)
             }
             # Example: --foo
-            case _ -> Token.Long(val.slice(2, val.size).into_string)
+            case _ -> {
+              Token.Long(val.slice(start: 2, size: val.size).into_string)
+            }
           }
         }
         case Some(val) if val.size >= 2 and val.byte(0) == HYPHEN -> {
@@ -105,7 +109,7 @@ impl Iter[Token] for Lexer {
               let name = val.slice(start: 1, size: 1).into_string
               let start = if idx > 2 { 2 } else { idx + 1 }
 
-              @state = State.Value(val.slice(start, val.size).into_string)
+              buffer(val.slice(start, val.size))
               Token.Short(name)
             }
             # Example: -á=b
@@ -118,7 +122,7 @@ impl Iter[Token] for Lexer {
               let offset = name.size + 1
               let start = if idx == offset { offset + 1 } else { offset }
 
-              @state = State.Value(val.slice(start, val.size).into_string)
+              buffer(val.slice(start, val.size))
               Token.Short(name)
             }
             # Example: -a
@@ -126,9 +130,7 @@ impl Iter[Token] for Lexer {
               let name = val.slice(start: 1, size: 1).into_string
               let offset = name.size + 1
 
-              if offset < val.size {
-                @state = State.Value(val.slice(offset, val.size).into_string)
-              }
+              if offset < val.size { buffer(val.slice(offset, val.size)) }
 
               Token.Short(name)
             }
@@ -141,9 +143,7 @@ impl Iter[Token] for Lexer {
               let name = chars.next.unwrap
               let offset = name.size + 1
 
-              if offset < val.size {
-                @state = State.Value(val.slice(offset, val.size).into_string)
-              }
+              if offset < val.size { buffer(val.slice(offset, val.size)) }
 
               Token.Short(name)
             }
