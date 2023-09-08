@@ -1,0 +1,159 @@
+# Lexical analysis of command-line arguments.
+import std.cmp.Equal
+import std.fmt.(Format, Formatter)
+import std.iter.(Iter, Stream)
+
+let HYPHEN = 45
+let EQ = 61
+
+fn basic_latin?(byte: Int) -> Bool {
+  byte <= 127
+}
+
+class enum Token {
+  # A short option, such as `-h`.
+  case Short(String)
+
+  # A long option, such as `--help`.
+  case Long(String)
+
+  # A regular value.
+  case Value(String)
+
+  # The "--" separator.
+  case Separator
+}
+
+impl Equal[Token] for Token {
+  fn pub ==(other: ref Token) -> Bool {
+    match (self, other) {
+      case (Short(a), Short(b)) -> a == b
+      case (Long(a), Long(b)) -> a == b
+      case (Value(a), Value(b)) -> a == b
+      case (Separator, Separator) -> true
+      case _ -> false
+    }
+  }
+}
+
+impl Format for Token {
+  fn pub fmt(formatter: mut Formatter) {
+    match self {
+      case Short(v) -> formatter.tuple('Short').field(v).finish
+      case Long(v) -> formatter.tuple('Long').field(v).finish
+      case Value(v) -> formatter.tuple('Value').field(v).finish
+      case Separator -> formatter.tuple('Separator').finish
+    }
+  }
+}
+
+class enum State {
+  case Default
+  case Rest
+  case Value(String)
+}
+
+# A type that breaks up a list of command-line arguments into a series of
+# tokens.
+class Lexer {
+  let @input: Stream[String]
+  let @state: State
+
+  fn static new(input: ref Array[String]) -> Lexer {
+    Lexer { @input = input.iter, @state = State.Default }
+  }
+}
+
+impl Iter[Token] for Lexer {
+  fn pub mut next -> Option[Token] {
+    let token = match @state {
+      case Value(val) -> {
+        @state = State.Default
+        Token.Value(val)
+      }
+      case Rest -> match @input.next {
+        case Some(val) -> Token.Value(val)
+        case _ -> return Option.None
+      }
+      case _ -> match @input.next {
+        case Some('--') -> {
+          @state = State.Rest
+          Token.Separator
+        }
+        case Some(val)
+          if val.size >= 3
+            and val.byte(0) == HYPHEN
+            and val.byte(1) == HYPHEN
+        -> {
+          match val.byte_index(of: '=', starting_at: 2) {
+            # Example: --foo=bar
+            case Some(idx) -> {
+              let name = val.slice(start: 2, size: idx - 2).into_string
+              let value = val.slice(idx + 1, val.size).into_string
+
+              @state = State.Value(value)
+              Token.Long(name)
+            }
+            # Example: --foo
+            case _ -> Token.Long(val.slice(2, val.size).into_string)
+          }
+        }
+        case Some(val) if val.size >= 2 and val.byte(0) == HYPHEN -> {
+          match val.byte_index(of: '=', starting_at: 1) {
+            # Example: -a=b
+            case Some(idx) if basic_latin?(val.byte(1)) -> {
+              let name = val.slice(start: 1, size: 1).into_string
+              let start = if idx > 2 { 2 } else { idx + 1 }
+
+              @state = State.Value(val.slice(start, val.size).into_string)
+              Token.Short(name)
+            }
+            # Example: -á=b
+            case Some(idx) -> {
+              let chars = val.chars
+
+              chars.next # Skip the '-'
+
+              let name = chars.next.unwrap
+              let offset = name.size + 1
+              let start = if idx == offset { offset + 1 } else { offset }
+
+              @state = State.Value(val.slice(start, val.size).into_string)
+              Token.Short(name)
+            }
+            # Example: -a
+            case _ if basic_latin?(val.byte(1)) -> {
+              let name = val.slice(start: 1, size: 1).into_string
+              let offset = name.size + 1
+
+              if offset < val.size {
+                @state = State.Value(val.slice(offset, val.size).into_string)
+              }
+
+              Token.Short(name)
+            }
+            # Example: -á
+            case _ -> {
+              let chars = val.chars
+
+              chars.next # Skip the '-'
+
+              let name = chars.next.unwrap
+              let offset = name.size + 1
+
+              if offset < val.size {
+                @state = State.Value(val.slice(offset, val.size).into_string)
+              }
+
+              Token.Short(name)
+            }
+          }
+        }
+        case Some(val) -> Token.Value(val)
+        case _ -> return Option.None
+      }
+    }
+
+    Option.Some(token)
+  }
+}
