@@ -1,0 +1,286 @@
+import optparse.lexer.Lexer
+import std.cmp.Equal
+import std.fmt.(Format, Formatter)
+
+# A type that describes a parsing error.
+class pub enum Error {
+  # The given option isn't recognized.
+  case InvalidOption(String)
+
+  # The given option is recognized, but occurs more times than is expected.
+  case DuplicateOption(String)
+
+  # The given option is missing a value.
+  case MissingValue(String)
+
+  # A value is passed to the given option, but the option doesn't accept any
+  # values.
+  case UnexpectedValue(String)
+}
+
+impl Equal[Error] for Error {
+  fn pub ==(other: ref Error) -> Bool {
+    match (self, other) {
+      case (InvalidOption(a), InvalidOption(b)) -> a == b
+      case (DuplicateOption(a), DuplicateOption(b)) -> a == b
+      case (MissingValue(a), MissingValue(b)) -> a == b
+      case (UnexpectedValue(a), UnexpectedValue(b)) -> a == b
+      case _ -> false
+    }
+  }
+}
+
+impl Format for Error {
+  fn pub fmt(formatter: mut Formatter) {
+    match self {
+      case InvalidOption(v) -> formatter.tuple('InvalidOption').field(v).finish
+      case DuplicateOption(v) -> {
+        formatter.tuple('DuplicateOption').field(v).finish
+      }
+      case MissingValue(v) -> formatter.tuple('MissingValue').field(v).finish
+      case UnexpectedValue(v) -> {
+        formatter.tuple('UnexpectedValue').field(v).finish
+      }
+    }
+  }
+}
+
+class enum Value {
+  case Flag
+  case Single(String)
+  case Multiple(Array[String])
+}
+
+# A type containing the parsed options and any remaining arguments.
+class pub Matches {
+  # The remaining/unparsed arguments.
+  let pub @remaining: Array[String]
+
+  # A mapping of short and long options names that have been parsed, along with
+  # their values.
+  #
+  # The values are references to the `values` field, as this removes the need
+  # for duplicating the values just so we can access them using both short and
+  # long option names.
+  let @options: Map[String, ref Value]
+
+  # The values that have been parsed.
+  let @option_values: Array[Value]
+
+  # Returns `true` if the given option is given.
+  #
+  # The `name` argument can be either the short or long name of an option.
+  fn pub present?(name: String) -> Bool {
+    @options.contains?(name)
+  }
+
+  # Returns a single value for the option, if any.
+  #
+  # The `name` argument can be either the short or long name of an option.
+  #
+  # If the option has multiple values assigned, this method returns the first
+  # value.
+  fn pub value(name: String) -> Option[String] {
+    Option.None
+  }
+
+  fn pub values(name: String) -> Array[String] {
+    []
+  }
+
+  fn mut add(short: String, long: String, value: Value) {
+    if short.size > 0 { @options.set(short, ref value) }
+    if long.size > 0 { @options.set(long, ref value) }
+
+    @option_values.push(value)
+  }
+}
+
+class enum Kind {
+  case Flag
+  case Single
+  case Multiple
+}
+
+class Opt {
+  let @kind: Kind
+  let @short: String
+  let @long: String
+  let @description: String
+  let @hint: String
+}
+
+# A type that describes the options to parse.
+class pub Options {
+  # A mapping of short and long option names to their corresponding option
+  # definitions.
+  let @mapping: Map[String, ref Opt]
+
+  # All options that have been defined.
+  let @options: Array[Opt]
+
+  # Returns a new empty `Options`.
+  fn pub static new -> Options {
+    Options { @mapping = Map.new, @options = [] }
+  }
+
+  # Adds a boolean option that can be specified once.
+  #
+  # The `short` argument is the short name of the option, such as "h" or "v".
+  # This value must be a single character long.
+  #
+  # The `long` argument is the long name of the option, such as "help" or
+  # "version".
+  #
+  # The `description` argument is the description of the option, displayed when
+  # formatting the list of options as a `String`.
+  #
+  # # Panics
+  #
+  # This method panics if both the `short` and `long` arguments are empty, or if
+  # the option is already defined.
+  fn pub mut flag(short: String, long: String, description: String) {
+    add(Opt {
+      @kind = Kind.Flag,
+      @short = short,
+      @long = long,
+      @description = description,
+      @hint = '',
+    })
+  }
+
+  # Adds an option that can be specified at most once, and requires a value.
+  #
+  # The `short` argument is the short name of the option, such as "h" or "v".
+  # This value must be a single character long.
+  #
+  # The `long` argument is the long name of the option, such as "help" or
+  # "version".
+  #
+  # The `hint` argument is an arbitrary `String` that describes the type of
+  # value that is expected, such as "CONFIG" for a configuration file option.
+  #
+  # The `description` argument is the description of the option, displayed when
+  # formatting the list of options as a `String`.
+  #
+  # # Panics
+  #
+  # This method panics if both the `short` and `long` arguments are empty, or if
+  # the option is already defined.
+  fn pub mut single(
+    short: String,
+    long: String,
+    hint: String,
+    description: String,
+  ) {
+    add(Opt {
+      @kind = Kind.Single,
+      @short = short,
+      @long = long,
+      @description = description,
+      @hint = hint,
+    })
+  }
+
+  # Adds an option that can be specified multiple times, and requires a value.
+  #
+  # The `short` argument is the short name of the option, such as "h" or "v".
+  # This value must be a single character long.
+  #
+  # The `long` argument is the long name of the option, such as "help" or
+  # "version".
+  #
+  # The `hint` argument is an arbitrary `String` that describes the type of
+  # value that is expected, such as "CONFIG" for a configuration file option.
+  #
+  # The `description` argument is the description of the option, displayed when
+  # formatting the list of options as a `String`.
+  #
+  # # Panics
+  #
+  # This method panics if both the `short` and `long` arguments are empty, or if
+  # the option is already defined.
+  fn pub mut multiple(
+    short: String,
+    long: String,
+    hint: String,
+    description: String,
+  ) {
+    add(Opt {
+      @kind = Kind.Multiple,
+      @short = short,
+      @long = long,
+      @description = description,
+      @hint = hint,
+    })
+  }
+
+  # Parses the given command-line arguments according to the options defined
+  # thus far.
+  fn pub parse(arguments: ref Array[String]) -> Result[Matches, Error] {
+    let lexer = Lexer.new(arguments)
+    let matches =
+      Matches { @remaining = [], @options = Map.new, @option_values = [] }
+
+    loop {
+      match lexer.next {
+        case Some(Short(name)) -> match @mapping.opt(name) {
+          case Some(opt) -> match opt.kind {
+            case Flag -> matches.add(opt.short, opt.long, Value.Flag)
+            case Single -> panic('TODO')
+            case Multiple -> panic('TODO')
+          }
+          case _ -> throw Error.InvalidOption(name)
+        }
+        case Some(Long(name)) -> match @mapping.opt(name) {
+          case Some(opt) -> match opt.kind {
+            case Flag -> matches.add(opt.short, opt.long, Value.Flag)
+            case Single -> panic('TODO')
+            case Multiple -> panic('TODO')
+          }
+          case _ -> throw Error.InvalidOption(name)
+        }
+        case Some(Value(val)) -> matches.remaining.push(val)
+        case Some(Separator) -> {
+          lexer.each fn (token) {
+            match token {
+              case Value(val) -> matches.remaining.push(val)
+              # This case is unreachable, as the lexer produces only Value
+              # tokens after encountering a separator.
+              case _ -> panic('Expected a Value token')
+            }
+          }
+
+          break
+        }
+        case _ -> break
+      }
+    }
+
+    Result.Ok(matches)
+  }
+
+  fn mut add(option: Opt) {
+    if option.short.empty? and option.long.empty? {
+      panic('options require either a short or long option name')
+    }
+
+    if option.short.size > 0 {
+      if @mapping.contains?(option.short) {
+        panic("the short option '{option.short}' is already defined")
+      }
+
+      @mapping.set(option.short, ref option)
+    }
+
+    if option.long.size > 0 {
+      if @mapping.contains?(option.long) {
+        panic("the long option '{option.long}' is already defined")
+      }
+
+      @mapping.set(option.long, ref option)
+    }
+
+    @options.push(option)
+  }
+}

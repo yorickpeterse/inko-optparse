@@ -1,0 +1,52 @@
+import std.test.Tests
+import optparse.Options
+
+fn pub tests(t: mut Tests) {
+  t.test('Options.flag') fn (t) {
+
+  }
+
+  t.test('Options.single') fn (t) {
+
+  }
+
+  t.test('Options.multiple') fn (t) {
+
+  }
+
+  t.test('Options.parse without any options and arguments') fn (t) {
+    let opts = Options.new
+
+    t.equal(opts.parse([]).unwrap.remaining, [])
+  }
+
+  t.test('Options.parse without any options defined and arguments') fn (t) {
+    let opts = Options.new
+
+    t.equal(opts.parse(['foo']).unwrap.remaining, ['foo'])
+  }
+
+  t.test('Options.parse with a recognized short flag') fn (t) {
+    let opts = Options.new
+
+    opts.flag('h', 'help', 'Show this help message')
+
+    let result = opts.parse(['-h'])
+    let matches = result.unwrap
+
+    t.true(matches.present?('h'))
+    t.true(matches.present?('help'))
+  }
+
+  t.test('Options.parse with a recognized long flag') fn (t) {
+    let opts = Options.new
+
+    opts.flag('h', 'help', 'Show this help message')
+
+    let result = opts.parse(['--help'])
+    let matches = result.unwrap
+
+    t.true(matches.present?('h'))
+    t.true(matches.present?('help'))
+  }
+}
