@@ -16,7 +16,10 @@ class enum Token {
   # A long option, such as `--help`.
   case Long(String)
 
-  # A regular value.
+  # A long option with a value using the syntax `--option=value`.
+  case LongPair(String, String)
+
+  # A regular standalone value.
   case Value(String)
 
   # The "--" separator.
@@ -28,6 +31,7 @@ impl Equal[Token] for Token {
     match (self, other) {
       case (Short(a), Short(b)) -> a == b
       case (Long(a), Long(b)) -> a == b
+      case (LongPair(a1, b1), LongPair(a2, b2)) -> a1 == a2 and b1 == b2
       case (Value(a), Value(b)) -> a == b
       case (Separator, Separator) -> true
       case _ -> false
@@ -40,6 +44,9 @@ impl Format for Token {
     match self {
       case Short(v) -> formatter.tuple('Short').field(v).finish
       case Long(v) -> formatter.tuple('Long').field(v).finish
+      case LongPair(k, v) -> {
+        formatter.tuple('LongPair').field(k).field(v).finish
+      }
       case Value(v) -> formatter.tuple('Value').field(v).finish
       case Separator -> formatter.tuple('Separator').finish
     }
@@ -92,9 +99,9 @@ impl Iter[Token] for Lexer {
             # Example: --foo=bar
             case Some(idx) -> {
               let name = val.slice(start: 2, size: idx - 2).into_string
+              let value = val.slice(idx + 1, val.size).into_string
 
-              buffer(val.slice(idx + 1, val.size))
-              Token.Long(name)
+              Token.LongPair(name, value)
             }
             # Example: --foo
             case _ -> {
@@ -104,15 +111,14 @@ impl Iter[Token] for Lexer {
         }
         case Some(val) if val.size >= 2 and val.byte(0) == HYPHEN -> {
           match val.byte_index(of: '=', starting_at: 1) {
-            # Example: -a=b
+            # Example: -a=b, parsed as `-a "=b"` to match getopts behaviour
             case Some(idx) if basic_latin?(val.byte(1)) -> {
               let name = val.slice(start: 1, size: 1).into_string
-              let start = if idx > 2 { 2 } else { idx + 1 }
 
-              buffer(val.slice(start, val.size))
+              buffer(val.slice(2, val.size))
               Token.Short(name)
             }
-            # Example: -á=b
+            # Example: -á=b, parsed as `-á "=b"` to mtach getopts behaviour.
             case Some(idx) -> {
               let chars = val.chars
 
@@ -120,9 +126,8 @@ impl Iter[Token] for Lexer {
 
               let name = chars.next.unwrap
               let offset = name.size + 1
-              let start = if idx == offset { offset + 1 } else { offset }
 
-              buffer(val.slice(start, val.size))
+              buffer(val.slice(offset, val.size))
               Token.Short(name)
             }
             # Example: -a

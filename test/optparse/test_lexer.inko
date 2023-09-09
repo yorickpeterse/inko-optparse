@@ -27,19 +27,19 @@ fn pub tests(t: mut Tests) {
       [Token.Short('v'), Token.Value('='), Token.Value('foo')]
     )
 
-    t.equal(lex(['-v=']), [Token.Short('v'), Token.Value('')])
-    t.equal(lex(['-v=foo']), [Token.Short('v'), Token.Value('foo')])
-    t.equal(lex(['-😮=']), [Token.Short('😮'), Token.Value('')])
-    t.equal(lex(['-😮=foo']), [Token.Short('😮'), Token.Value('foo')])
+    t.equal(lex(['-v=']), [Token.Short('v'), Token.Value('=')])
+    t.equal(lex(['-v=foo']), [Token.Short('v'), Token.Value('=foo')])
+    t.equal(lex(['-😮=']), [Token.Short('😮'), Token.Value('=')])
+    t.equal(lex(['-😮=foo']), [Token.Short('😮'), Token.Value('=foo')])
     t.equal(lex(['-help=']), [Token.Short('h'), Token.Value('elp=')])
     t.equal(lex(['-help=foo']), [Token.Short('h'), Token.Value('elp=foo')])
     t.equal(lex(['-😮a=']), [Token.Short('😮'), Token.Value('a=')])
     t.equal(lex(['-😮a=foo']), [Token.Short('😮'), Token.Value('a=foo')])
-    t.equal(lex(['--v=']), [Token.Long('v'), Token.Value('')])
-    t.equal(lex(['--v=foo']), [Token.Long('v'), Token.Value('foo')])
-    t.equal(lex(['--😮=foo']), [Token.Long('😮'), Token.Value('foo')])
-    t.equal(lex(['-é=foo']), [Token.Short('é'), Token.Value('foo')])
-    t.equal(lex(['--éé=foo']), [Token.Long('éé'), Token.Value('foo')])
+    t.equal(lex(['--v=']), [Token.LongPair('v', '')])
+    t.equal(lex(['--v=foo']), [Token.LongPair('v', 'foo')])
+    t.equal(lex(['--😮=foo']), [Token.LongPair('😮', 'foo')])
+    t.equal(lex(['-é=foo']), [Token.Short('é'), Token.Value('=foo')])
+    t.equal(lex(['--éé=foo']), [Token.LongPair('éé', 'foo')])
     t.equal(
       lex(['-v', 'a', 'b']),
       [Token.Short('v'), Token.Value('a'), Token.Value('b')]
@@ -47,12 +47,12 @@ fn pub tests(t: mut Tests) {
 
     t.equal(
       lex(['-v', '--', '-a', 'b']),
-      [
-        Token.Short('v'),
-        Token.Separator,
-        Token.Value('-a'),
-        Token.Value('b'),
-      ]
+      [Token.Short('v'), Token.Separator, Token.Value('-a'), Token.Value('b')]
+    )
+
+    t.equal(
+      lex(['-v', '--', '-a=b']),
+      [Token.Short('v'), Token.Separator, Token.Value('-a=b')]
     )
   }
 }

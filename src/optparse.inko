@@ -1,6 +1,30 @@
-import optparse.lexer.Lexer
+# Command-line option and argument parsing, inspired by getopts.
+import optparse.lexer.(basic_latin?, Lexer)
+import std.clone.Clone
 import std.cmp.Equal
 import std.fmt.(Format, Formatter)
+import std.string.StringBuffer
+import std.string.ToString
+
+fn character_count(string: String) -> Int {
+  if string.bytes.all?(fn (b) { basic_latin?(b) }) {
+    string.size
+  } else {
+    string.chars.count
+  }
+}
+
+fn consume_remaining(lexer: Lexer, remaining: mut Array[String]) {
+  lexer.each fn (token) {
+    match token {
+      case Short(n) -> remaining.push("-{n}")
+      case Long(n) -> remaining.push("--{n}")
+      case LongPair(k, v) -> remaining.push("--{k}={v}")
+      case Value(v) -> remaining.push(v)
+      case Separator -> remaining.push('--')
+    }
+  }
+}
 
 # A type that describes a parsing error.
 class pub enum Error {
@@ -16,6 +40,19 @@ class pub enum Error {
   # A value is passed to the given option, but the option doesn't accept any
   # values.
   case UnexpectedValue(String)
+}
+
+impl ToString for Error {
+  fn pub to_string -> String {
+    match self {
+      case InvalidOption(name) -> "the option '{name}' is unrecognized"
+      case DuplicateOption(name) -> "the option '{name}' is already specified"
+      case MissingValue(name) -> "the option '{name}' requires an argument"
+      case UnexpectedValue(name) -> {
+        "the option '{name}' doesn't accept any arguments"
+      }
+    }
+  }
 }
 
 impl Equal[Error] for Error {
@@ -46,9 +83,24 @@ impl Format for Error {
 }
 
 class enum Value {
+  case String(String)
   case Flag
-  case Single(String)
-  case Multiple(Array[String])
+
+  fn as_string -> Option[String] {
+    match self {
+      case String(v) -> Option.Some(v)
+      case _ -> Option.None
+    }
+  }
+}
+
+impl Clone[Value] for Value {
+  fn pub clone -> Value {
+    match self {
+      case String(v) -> Value.String(v)
+      case Flag -> Value.Flag
+    }
+  }
 }
 
 # A type containing the parsed options and any remaining arguments.
@@ -57,20 +109,26 @@ class pub Matches {
   let pub @remaining: Array[String]
 
   # A mapping of short and long options names that have been parsed, along with
-  # their values.
-  #
-  # The values are references to the `values` field, as this removes the need
-  # for duplicating the values just so we can access them using both short and
-  # long option names.
-  let @options: Map[String, ref Value]
-
-  # The values that have been parsed.
-  let @option_values: Array[Value]
+  # their arguments.
+  let @options: Map[String, Array[Value]]
 
   # Returns `true` if the given option is given.
   #
   # The `name` argument can be either the short or long name of an option.
-  fn pub present?(name: String) -> Bool {
+  #
+  # # Examples
+  #
+  #     import optparse.Options
+  #
+  #     let opts = Options.new
+  #
+  #     opts.flag('h', 'help', 'Show this help message')
+  #
+  #     let matches = opts.parse(['-h']).unwrap
+  #
+  #     matches.contains?('h')    # => true
+  #     matches.contains?('help') # => true
+  fn pub contains?(name: String) -> Bool {
     @options.contains?(name)
   }
 
@@ -78,21 +136,60 @@ class pub Matches {
   #
   # The `name` argument can be either the short or long name of an option.
   #
-  # If the option has multiple values assigned, this method returns the first
-  # value.
+  # If the option doesn't accept any arguments, this method returns `None`. If
+  # the option has multiple arguments assigned, this method returns the first
+  # argument.
+  #
+  # # Examples
+  #
+  #     import optparse.Options
+  #
+  #     let opts = Options.new
+  #
+  #     opts.single('c', 'config', 'PATH', 'Use a custom configuration file')
+  #
+  #     let matches = opts.parse(['-c', 'foo.json']).unwrap
+  #
+  #     matches.value('c')      # => Option.Some('foo.json')
+  #     matches.value('config') # => Option.Some('foo.json')
   fn pub value(name: String) -> Option[String] {
-    Option.None
+    @options.opt(name).then fn (v) { v.opt(0) }.then fn (v) { v.as_string }
   }
 
+  # Returns the values for the option.
+  #
+  # If no values are present or the option doesn't take any arguments, an empty
+  # `Array` is returned.
+  #
+  # # Examples
+  #
+  #     import optparse.Options
+  #
+  #     let opts = Options.new
+  #
+  #     opts.multiple('i', 'include', 'PATH', 'Include the given directory')
+  #
+  #     let matches = opts.parse(['-i', 'test', '-i', 'src']).unwrap
+  #
+  #     matches.values('i')       # => ['test', 'src']
+  #     matches.values('include') # => ['test', 'src']
   fn pub values(name: String) -> Array[String] {
-    []
+    match @options.opt(name) {
+      case Some(vals) -> vals.iter.select_map fn (v) { v.as_string }.to_array
+      case _ -> []
+    }
   }
 
-  fn mut add(short: String, long: String, value: Value) {
-    if short.size > 0 { @options.set(short, ref value) }
-    if long.size > 0 { @options.set(long, ref value) }
+  fn mut add(opt: ref Opt, value: Value) {
+    if opt.short.size > 0 { add_or_append(opt.short, value.clone) }
+    if opt.long.size > 0 { add_or_append(opt.long, value) }
+  }
 
-    @option_values.push(value)
+  fn mut add_or_append(key: String, value: Value) {
+    match @options.opt_mut(key) {
+      case Some(vals) -> vals.push(value)
+      case _ -> @options.set(key, [value])
+    }
   }
 }
 
@@ -119,9 +216,20 @@ class pub Options {
   # All options that have been defined.
   let @options: Array[Opt]
 
+  # If parsing of arguments and options should stop when encountering the first
+  # non-option argument.
+  #
+  # When set and a non-option is encountered, any remaining options and
+  # arguments are stored as-is in `Matches.remaining`.
+  let pub @stop_at_first_non_option: Bool
+
   # Returns a new empty `Options`.
   fn pub static new -> Options {
-    Options { @mapping = Map.new, @options = [] }
+    Options {
+      @mapping = Map.new,
+      @options = [],
+      @stop_at_first_non_option = false,
+    }
   }
 
   # Adds a boolean option that can be specified once.
@@ -137,8 +245,19 @@ class pub Options {
   #
   # # Panics
   #
-  # This method panics if both the `short` and `long` arguments are empty, or if
-  # the option is already defined.
+  # This method panics if:
+  #
+  # - Both `short` and `long` are empty.
+  # - An option is already defined for the `short` or `long` option name.
+  # - `short` contains more than one character.
+  #
+  # # Examples
+  #
+  #     import optparse.Options
+  #
+  #     let opts = Options.new
+  #
+  #     opts.flag('h', 'help', 'Show this help message')
   fn pub mut flag(short: String, long: String, description: String) {
     add(Opt {
       @kind = Kind.Flag,
@@ -165,8 +284,19 @@ class pub Options {
   #
   # # Panics
   #
-  # This method panics if both the `short` and `long` arguments are empty, or if
-  # the option is already defined.
+  # This method panics if:
+  #
+  # - Both `short` and `long` are empty.
+  # - An option is already defined for the `short` or `long` option name.
+  # - `short` contains more than one character.
+  #
+  # # Examples
+  #
+  #     import optparse.Options
+  #
+  #     let opts = Options.new
+  #
+  #     opts.single('c', 'config', 'PATH', 'Use a custom configuration file')
   fn pub mut single(
     short: String,
     long: String,
@@ -198,8 +328,19 @@ class pub Options {
   #
   # # Panics
   #
-  # This method panics if both the `short` and `long` arguments are empty, or if
-  # the option is already defined.
+  # This method panics if:
+  #
+  # - Both `short` and `long` are empty.
+  # - An option is already defined for the `short` or `long` option name.
+  # - `short` contains more than one character.
+  #
+  # # Examples
+  #
+  #     import optparse.Options
+  #
+  #     let opts = Options.new
+  #
+  #     opts.multiple('i', 'include', 'PATH', 'Include the given directory')
   fn pub mut multiple(
     short: String,
     long: String,
@@ -217,40 +358,59 @@ class pub Options {
 
   # Parses the given command-line arguments according to the options defined
   # thus far.
+  #
+  # # Examples
+  #
+  #     import optparse.Options
+  #
+  #     let opts = Options.new
+  #
+  #     opts.flag('h', 'help', 'Show this help message')
+  #     opts.multiple('i', 'include', 'PATH', 'Include the given directory')
+  #
+  #     let matches = opts.parse(['-i', 'test', '-i', 'src']).unwrap
   fn pub parse(arguments: ref Array[String]) -> Result[Matches, Error] {
     let lexer = Lexer.new(arguments)
-    let matches =
-      Matches { @remaining = [], @options = Map.new, @option_values = [] }
+    let matches = Matches { @remaining = [], @options = Map.new }
 
     loop {
       match lexer.next {
-        case Some(Short(name)) -> match @mapping.opt(name) {
+        case Some(Short(name) or Long(name)) -> match @mapping.opt(name) {
           case Some(opt) -> match opt.kind {
-            case Flag -> matches.add(opt.short, opt.long, Value.Flag)
-            case Single -> panic('TODO')
-            case Multiple -> panic('TODO')
-          }
-          case _ -> throw Error.InvalidOption(name)
-        }
-        case Some(Long(name)) -> match @mapping.opt(name) {
-          case Some(opt) -> match opt.kind {
-            case Flag -> matches.add(opt.short, opt.long, Value.Flag)
-            case Single -> panic('TODO')
-            case Multiple -> panic('TODO')
-          }
-          case _ -> throw Error.InvalidOption(name)
-        }
-        case Some(Value(val)) -> matches.remaining.push(val)
-        case Some(Separator) -> {
-          lexer.each fn (token) {
-            match token {
-              case Value(val) -> matches.remaining.push(val)
-              # This case is unreachable, as the lexer produces only Value
-              # tokens after encountering a separator.
-              case _ -> panic('Expected a Value token')
+            case Flag if matches.contains?(name) -> {
+              throw Error.DuplicateOption(name)
+            }
+            case Single if matches.contains?(name) -> {
+              throw Error.DuplicateOption(name)
+            }
+            case Flag -> matches.add(opt, Value.Flag)
+            case Single or Multiple -> match lexer.next {
+              case Some(Value(val)) -> matches.add(opt, Value.String(val))
+              case _ -> throw Error.MissingValue(name)
             }
           }
+          case _ -> throw Error.InvalidOption(name)
+        }
+        case Some(LongPair(name, val)) -> match @mapping.opt(name) {
+          case Some(opt) -> match opt.kind {
+            case Flag -> throw Error.UnexpectedValue(name)
+            case Single if matches.contains?(name) -> {
+              throw Error.DuplicateOption(name)
+            }
+            case Single or Multiple -> matches.add(opt, Value.String(val))
+          }
+          case _ -> throw Error.InvalidOption(name)
+        }
+        case Some(Value(val)) -> {
+          matches.remaining.push(val)
 
+          if @stop_at_first_non_option {
+            consume_remaining(lexer, matches.remaining)
+            break
+          }
+        }
+        case Some(Separator) -> {
+          consume_remaining(lexer, matches.remaining)
           break
         }
         case _ -> break
@@ -266,6 +426,10 @@ class pub Options {
     }
 
     if option.short.size > 0 {
+      if character_count(option.short) > 1 {
+        panic('the short option name must be a single character')
+      }
+
       if @mapping.contains?(option.short) {
         panic("the short option '{option.short}' is already defined")
       }
@@ -274,6 +438,10 @@ class pub Options {
     }
 
     if option.long.size > 0 {
+      if character_count(option.long) == 1 {
+        panic('the long option name must contain at least two characters')
+      }
+
       if @mapping.contains?(option.long) {
         panic("the long option '{option.long}' is already defined")
       }
@@ -282,5 +450,65 @@ class pub Options {
     }
 
     @options.push(option)
+  }
+}
+
+impl ToString for Options {
+  # Returns a `String` describing all the options defined thus far.
+  fn pub to_string -> String {
+    let opts = []
+    let descs = []
+
+    @options.iter.each fn (opt) {
+      let short = if opt.short.size > 0 { "-{opt.short}" } else { '' }
+      let long = if opt.long.size > 0 and opt.hint.size > 0 {
+        "--{opt.long}={opt.hint}"
+      } else if opt.long.size > 0 {
+        "--{opt.long}"
+      } else {
+        ''
+      }
+
+      if short.size > 0 and long.size > 0 {
+        opts.push("{short}, {long}")
+      } else if long.size > 0 {
+        opts.push("    {long}")
+      } else {
+        opts.push(short)
+      }
+
+      descs.push(opt.description)
+    }
+
+    let max_size = opts.iter.reduce(0) fn (max, line) {
+      let chars = character_count(line)
+
+      if chars > max { chars } else { max }
+    }
+
+    let buf = StringBuffer.new
+
+    opts.into_iter.each_with_index fn (idx, opt) {
+      let desc = descs.get(idx)
+      let has_desc = desc.size > 0
+
+      if idx > 0 { buf.push("\n  ") } else { buf.push('  ') }
+
+      if has_desc {
+        buf.push(opt.pad_end(with: ' ', chars: max_size + 4))
+        desc.split("\n").each_with_index fn (index, line) {
+          if index > 0 {
+            buf.push("\n")
+            buf.push(' '.repeat(max_size + 6))
+          }
+
+          buf.push(line)
+        }
+      } else {
+        buf.push(opt)
+      }
+    }
+
+    buf.into_string
   }
 }
