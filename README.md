@@ -135,7 +135,7 @@ class async Main {
         .options(opts)
         .to_string
 
-      STDOUT.new.print(help)
+      STDOUT.new.write_string(help)
     } else {
       STDOUT.new.print(fmt(matches.remaining))
     }
