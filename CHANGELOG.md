@@ -4,6 +4,12 @@
 
 <!-- new section -->
 
+## 0.2.0 (2023-10-27)
+
+### Added
+
+* [38a30e0](https://github.com/yorickpeterse/inko-optparse/commit/38a30e0): Make formatting help messages easier
+
 ## 0.1.0 (2023-09-09)
 
 No changes
