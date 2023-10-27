@@ -1,4 +1,4 @@
-import optparse.(Error, Options)
+import optparse.(Error, Help, Options)
 import std.fmt.(fmt)
 import std.test.Tests
 
@@ -466,6 +466,79 @@ fn pub tests(t: mut Tests) {
   -x                                      Foo
   -o, --option-with-a-much-longer-name    Example\
       '.strip_prefix("\n")
+    )
+  }
+
+  t.test('Help.new') fn (t) {
+    t.equal(Help.new('a').to_string, "Usage: a [OPTIONS]\n")
+  }
+
+  t.test('Help.usage') fn (t) {
+    t.equal(Help.new('a').usage('[CMD]').to_string, "Usage: a [CMD]\n")
+  }
+
+  t.test('Help.section') fn (t) {
+    t.equal(
+      Help.new('a').section('Examples').to_string,
+      "Usage: a [OPTIONS]\n\nExamples:\n\n"
+    )
+  }
+
+  t.test('Help.line') fn (t) {
+    t.equal(Help.new('a').line('foo').to_string, "Usage: a [OPTIONS]\n  foo\n")
+  }
+
+  t.test('Help.description') fn (t) {
+    t.equal(
+      Help.new('a').description('foo').to_string,
+      "Usage: a [OPTIONS]\n\nfoo\n"
+    )
+  }
+
+  t.test('Help.options') fn (t) {
+    let opts = Options.new
+
+    opts.flag('h', 'help', 'Show this help message')
+
+    t.equal(
+      Help.new('a').options(opts).to_string,
+      "Usage: a [OPTIONS]\n  -h, --help    Show this help message\n"
+    )
+  }
+
+  t.test('Help.to_string') fn (t) {
+    let opts = Options.new
+
+    opts.flag('h', 'help', 'Show this help message')
+    opts.flag('v', 'version', 'Show the version')
+
+    let help = Help
+      .new('a')
+      .description('This is an example')
+      .section('Examples')
+      .line('foo')
+      .line('bar')
+      .section('Options')
+      .options(opts)
+      .to_string
+
+    t.equal(
+      help,
+      '\
+Usage: a [OPTIONS]
+
+This is an example
+
+Examples:
+
+  foo
+  bar
+
+Options:
+
+  -h, --help       Show this help message
+  -v, --version    Show the version
+'
     )
   }
 }

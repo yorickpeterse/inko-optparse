@@ -3,8 +3,10 @@ import optparse.lexer.(basic_latin?, Lexer)
 import std.clone.Clone
 import std.cmp.Equal
 import std.fmt.(Format, Formatter)
-import std.string.StringBuffer
-import std.string.ToString
+import std.string.(StringBuffer, ToString)
+
+# The indentation to apply at the start of every option line.
+let INDENT = '  '
 
 fn character_count(string: String) -> Int {
   if string.bytes.all?(fn (b) { basic_latin?(b) }) {
@@ -492,7 +494,8 @@ impl ToString for Options {
       let desc = descs.get(idx)
       let has_desc = desc.size > 0
 
-      if idx > 0 { buf.push("\n  ") } else { buf.push('  ') }
+      if idx > 0 { buf.push("\n") }
+      buf.push(INDENT)
 
       if has_desc {
         buf.push(opt.pad_end(with: ' ', chars: max_size + 4))
@@ -510,5 +513,164 @@ impl ToString for Options {
     }
 
     buf.into_string
+  }
+}
+
+# A type for generating help messages easily.
+#
+# # Examples
+#
+# A simple but complete overview of how to use this type:
+#
+#     import optparse.(Help, Options)
+#
+#     let opts = Options.new
+#
+#     opts.flag('h', 'help', 'Show this help message')
+#     opts.flag('v', 'version', 'Show the version')
+#
+#     Help
+#       .new('a')
+#       .description('This is an example')
+#       .section('Examples')
+#       .line('foo')
+#       .line('bar')
+#       .section('Options')
+#       .options(opts)
+#       .to_string
+#
+# This returns the following:
+#
+#     a: [OPTIONS]
+#
+#     This is an example
+#
+#     Examples:
+#
+#       foo
+#       bar
+#
+#     Options:
+#
+#       -h, --help       Show this help message
+#       -v, --version    Show the version
+class pub Help {
+  # The name of the program/executable.
+  let @name: String
+
+  # The description of the command.
+  let @description: String
+
+  # The usage section of the help message.
+  #
+  # This field defaults to the value `'[OPTIONS]'`.
+  let @usage: String
+
+  # The lines to display in the help message.
+  let @lines: StringBuffer
+
+  # Returns a new `Help` instance with the given program name.
+  #
+  # # Examples
+  #
+  #     import optparse.Help
+  #
+  #     Help.new('ls')
+  fn pub static new(name: String) -> Help {
+    Help {
+      @name = name,
+      @description = '',
+      @usage = '[OPTIONS]',
+      @lines = StringBuffer.new,
+    }
+  }
+
+  # Sets the usage `String` to the given argument.
+  #
+  # # Examples
+  #
+  #     import optparse.Help
+  #
+  #     Help.new('ls').usage('[OPTIONS]')
+  fn pub mut usage(value: String) -> mut Help {
+    @usage = value
+    self
+  }
+
+  # Adds a section to the output.
+  #
+  # # Examples
+  #
+  #     import optparse.Help
+  #
+  #     Help.new('ls').section('Examples')
+  fn pub mut section(name: String) -> mut Help {
+    @lines.push("\n")
+    @lines.push(name)
+    @lines.push(":\n\n")
+    self
+  }
+
+  # Adds a regular line to the output.
+  #
+  # Indentation is added automatically to the start of the line.
+  #
+  # # Examples
+  #
+  #     import optparse.Help
+  #
+  #     Help.new('ls').section('Examples').line('ls # Show files and folders')
+  fn pub mut line(value: String) -> mut Help {
+    @lines.push(INDENT)
+    @lines.push(value)
+    @lines.push("\n")
+    self
+  }
+
+  # Sets the description of the command.
+  #
+  # Unlike `Help.line()`, the text isn't indented, and always comes after the
+  # usage line.
+  #
+  # # Examples
+  #
+  #     import optparse.Help
+  #
+  #     Help.new('ls').description('List files and folders')
+  fn pub mut description(value: String) -> mut Help {
+    @description = value
+    self
+  }
+
+  # Formats and adds a list of options to the output.
+  #
+  # # Examples
+  #
+  #     import optparse.(Help, Options)
+  #
+  #     let opts = Options.new
+  #
+  #     opts.flag('h', 'help', 'Show this help message')
+  #
+  #     Help.new('ls').options(opts)
+  fn pub mut options(value: ref Options) -> mut Help {
+    @lines.push(value.to_string)
+    @lines.push("\n")
+    self
+  }
+}
+
+impl ToString for Help {
+  fn pub to_string -> String {
+    let out = StringBuffer.from_array(['Usage: ', @name, ' ', @usage, "\n"])
+
+    if @description.size > 0 {
+      out.push("\n")
+      out.push(@description)
+      out.push("\n")
+    }
+
+    out.push(@lines.to_string)
+    out.into_string
   }
 }

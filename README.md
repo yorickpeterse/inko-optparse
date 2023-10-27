@@ -97,19 +97,11 @@ Here's a more in-depth example of using inko-optparse, including displaying a
 usage message and the available options:
 
 ```inko
-import optparse.Options
+import optparse.(Help, Options)
 import std.env
 import std.fmt.(fmt)
 import std.stdio.(STDOUT, STDERR)
 import std.sys
-
-let USAGE = 'Usage: test [OPTIONS]
-
-This is an example program to showcase the optparse library.
-
-Examples:
-
-  test --help'
 
 class async Main {
   fn async main {
@@ -132,7 +124,18 @@ class async Main {
     }
 
     if matches.contains?('help') {
-      STDOUT.new.print("{USAGE}\n\nOptions:\n\n{opts}")
+      let help = Help
+        .new('test')
+        .description(
+          'This is an example program to showcase the optparse library.'
+        )
+        .section('Examples')
+        .line('test --help')
+        .section('Options')
+        .options(opts)
+        .to_string
+
+      STDOUT.new.print(help)
     } else {
       STDOUT.new.print(fmt(matches.remaining))
     }
