@@ -26,7 +26,7 @@ class enum Token {
   case Separator
 }
 
-impl Equal[Token] for Token {
+impl Equal[ref Token] for Token {
   fn pub ==(other: ref Token) -> Bool {
     match (self, other) {
       case (Short(a), Short(b)) -> a == b
