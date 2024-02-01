@@ -112,14 +112,14 @@ impl Iter[Token] for Lexer {
         case Some(val) if val.size >= 2 and val.byte(0) == HYPHEN -> {
           match val.byte_index(of: '=', starting_at: 1) {
             # Example: -a=b, parsed as `-a "=b"` to match getopts behaviour
-            case Some(idx) if basic_latin?(val.byte(1)) -> {
+            case Some(_) if basic_latin?(val.byte(1)) -> {
               let name = val.slice(start: 1, size: 1).into_string
 
               buffer(val.slice(2, val.size))
               Token.Short(name)
             }
             # Example: -á=b, parsed as `-á "=b"` to mtach getopts behaviour.
-            case Some(idx) -> {
+            case Some(_) -> {
               let chars = val.chars
 
               chars.next # Skip the '-'
