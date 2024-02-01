@@ -26,7 +26,7 @@ arguments to subcommands or other processes.
 # Installation
 
 ```bash
-inko pkg add github.com/yorickpeterse/inko-optparse 0.3.0
+inko pkg add github.com/yorickpeterse/inko-optparse 0.4.0
 inko pkg sync
 ```
 
